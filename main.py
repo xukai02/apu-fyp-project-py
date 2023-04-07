@@ -91,15 +91,28 @@ class User(db.Model):
     password = db.Column(db.String(100), nullable=False)
     address = db.relationship('Address')
     # address = db.Column(db.String(255), nullable=True)
+    shop = db.relationship('Shop',backref='user')
 
     def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,
             'email': self.email,
+            'shop':self.shop.to_dict() if self.shop else None
             # 'address': self.address
         }
     
+class Shop(db.Model):
+    id = db.Column(db.Integer,primary_key=True)
+    name = db.Column(db.String(100),nullable = False)
+    user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    # user = db.relationship("User",backref="shop")
+    def to_dict(self):
+        return {
+            'id':self.id,
+            'name':self.name,
+            'user_id':self.user_id
+        }
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -107,7 +120,9 @@ class Product(db.Model):
     description = db.Column(db.String(255), nullable=False)
     price = db.Column(db.Float, nullable=False)
     image = db.Column(db.String(255), nullable=True)
-    user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    shop_id = db.Column(db.Integer,db.ForeignKey('shop.id'),nullable=False)
+    shop = db.relationship('Shop')
+    # user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
 
     def to_dict(self):
         return {
@@ -116,7 +131,9 @@ class Product(db.Model):
             'description': self.description,
             'price': self.price,
             'image': self.image,
-            'user_id': self.user_id
+            'shop_id':self.shop_id,
+            'shop':self.shop
+            # 'user_id': self.user_id
         }
     
 class Cart(db.Model):
@@ -222,19 +239,60 @@ class Address(db.Model):
             'state':self.state,
             'user_id':self.user_id
         }
+    
+@app.route('/login',methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(email = data['email']).first()
+    if(user):
+        if(user.password == data['password']):
+            return jsonify(user.to_dict()), 200
+        else:
+            return jsonify("Password Incorrect"), 400
+    else:
+        return jsonify("Account not exist"), 400
 
 @app.route('/register', methods=['POST'])
 def register_user():
     data = request.get_json()
     data_address = data.get('address')
     if(User.query.filter_by(email=data['email']).all()):
-        return jsonify("email exist")
-    user = User(name=data['name'],email=data['email'],password=data['password'])
+        return jsonify("email exist"), 400
+    user = User(name=data['name'],
+                email=data['email'],
+                password=data['password'])
     db.session.add(user)
     db.session.commit()
     if(data_address):
         create_address(user.id,data_address)
     return jsonify(user.to_dict())
+
+@app.route('/shop/add',methods=['POST'])
+def shop_add():
+    data = request.get_json()
+    shop = Shop(
+        name=data['name'],
+        user_id = data['user_id']
+    )
+    db.session.add(shop)
+    db.session.commit()
+    return jsonify(shop.to_dict())
+
+@app.route('/shop/view/<user_id>',methods=['GET'])
+def shop_view(user_id):
+    shop = Shop.query.filter_by(user_id = user_id).first()
+    if(shop):
+        return jsonify(shop.to_dict()), 200
+    else:
+        return jsonify("Not exist"), 400
+    
+@app.route('/shop/update/<id>',methods=['PUT','POST'])
+def shop_update(id):
+    shop = Shop.query.get_or_404(id)
+    data = request.get_json()
+    shop.name = data['name']
+    db.session.commit()
+    return jsonify(shop.to_dict()),200
 
 def create_address(user_id,address_data):
     address = Address(
@@ -571,4 +629,4 @@ def execute_todo(id):
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True,port=5000)
+    app.run(debug=True,port=5000,host="0.0.0.0")
