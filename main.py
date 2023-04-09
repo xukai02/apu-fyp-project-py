@@ -98,7 +98,7 @@ class User(db.Model):
             'id': self.id,
             'name': self.name,
             'email': self.email,
-            'shop':self.shop.to_dict() if self.shop else None
+            'shop':self.shop[0].to_dict() if self.shop else None
             # 'address': self.address
         }
     
@@ -132,7 +132,7 @@ class Product(db.Model):
             'price': self.price,
             'image': self.image,
             'shop_id':self.shop_id,
-            'shop':self.shop
+            'shop':self.shop.to_dict()
             # 'user_id': self.user_id
         }
     
@@ -155,7 +155,9 @@ class Cart(db.Model):
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user = db.relationship('User')
     address_id=db.Column(db.Integer,db.ForeignKey('address.id'),nullable=False)
+    address = db.relationship('Address')
     total_price = db.Column(db.Float, nullable=False)
     products = db.relationship('Product', secondary='order_product')
     status = db.Column(db.String(25),nullable=False)
@@ -164,7 +166,9 @@ class Order(db.Model):
         return {
             'id':self.id,
             'user_id':self.user_id,
+            'user': self.user.to_dict(),
             'address_id':self.address_id,
+            'address':self.address.to_dict() if self.address else None,
             'total_price':self.total_price,
             'products':[{
                 'id':product.id,
@@ -172,7 +176,8 @@ class Order(db.Model):
                 'description': product.description,
                 'price': product.price,
                 'image': product.image,
-                'user_id': product.user_id,
+                'shop_id': product.shop_id,
+                'shop':product.shop.to_dict(),
                 'quantity':order_product.quantity
             } for product, order_product in zip(self.products,OrderProduct.query.filter_by(order_id=self.id).all())],
             # 'products':[product.to_dict() for product in self.products],
@@ -190,6 +195,7 @@ class Rate(db.Model):
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
     user = db.relationship('User')
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'),nullable=False)
+    order_id = db.Column(db.Integer,db.ForeignKey('order.id'),nullable = False)
     rate = db.Column(db.Integer,nullable=False)
     review = db.Column(db.String(255),nullable=True)
     # file = db.Column(db.String(500),nullable=True) # image/video
@@ -202,6 +208,7 @@ class Rate(db.Model):
             'user_id': self.user_id,
             'user':self.user.to_dict(),
             'product_id': self.product_id,
+            'order_id':self.order_id,
             'rate':self.rate,
             'review':self.review,
             'reply_id':self.reply_id,
@@ -294,6 +301,11 @@ def shop_update(id):
     db.session.commit()
     return jsonify(shop.to_dict()),200
 
+@app.route('/product/view/<shop_id>',methods=['GET'])
+def product_viewByShop(shop_id):
+    products = Product.query.filter_by(shop_id = shop_id).all()
+    return jsonify([product.to_dict() for product in products])
+
 def create_address(user_id,address_data):
     address = Address(
         unit_number=address_data['unit_number'],
@@ -306,7 +318,6 @@ def create_address(user_id,address_data):
     db.session.add(address)
     db.session.commit()
     return address
-    
 
 @app.route('/address/add/<user_id>',methods=['POST'])
 def add_address(user_id):
@@ -336,7 +347,7 @@ def delete(id):
     address = Address.query.get_or_404(id)
     db.session.delete(address)
     db.session.commit()
-    return '',204
+    return '',200
 
 @app.route('/product/view',methods=['GET'])
 def product_view():
@@ -348,15 +359,15 @@ def product_search(id):
     product = Product.query.get_or_404(id)
     return jsonify(product.to_dict())
 
-@app.route('/product/add/<user_id>',methods=["POST"])
-def product_add(user_id):
+@app.route('/product/add/<shop_id>',methods=["POST"])
+def product_add(shop_id):
     data = request.get_json()
     product = Product(
         name=data['name'],
         description=data['description'],
         price=data['price'],
         image=data['image'],
-        user_id=user_id
+        shop_id=shop_id
     )
     db.session.add(product)
     db.session.commit()
@@ -378,11 +389,25 @@ def product_delete(id):
     product = Product.query.get_or_404(id)
     db.session.delete(product)
     db.session.commit()
-    return '',204
+    return '',200
 
 @app.route('/order/view',methods=['GET'])
 def order_view():
     orders = Order.query.all()
+    return jsonify([order.to_dict() for order in orders])
+
+@app.route("/order/view/<shop_id>",methods=['GET'])
+def order_viewbyshopid(shop_id):
+    allOrders = Order.query.all()
+    orders = []
+    for order in allOrders:
+        if str((order.to_dict())['products'][0]['shop_id']) == shop_id:
+            orders.append(order)
+    return jsonify([order.to_dict() for order in orders])
+
+@app.route('/order/viewbyuserid/<user_id>',methods=['GET'])
+def order_viewbyuserid(user_id):
+    orders = Order.query.filter_by(user_id = user_id).all()
     return jsonify([order.to_dict() for order in orders])
 
 @app.route('/order/search/<id>',methods=['GET'])
@@ -474,7 +499,7 @@ def cart_delete(id):
     cart = Cart.query.get_or_404(id)
     db.session.delete(cart)
     db.session.commit()
-    return "",204
+    return "",200
 
 @app.route('/rate/view/<product_id>',methods=['GET'])
 def rate_view(product_id):
@@ -486,12 +511,19 @@ def rate_search(id):
     rate = Rate.query.get_or_404(id)
     return jsonify(rate.to_dict())
 
+@app.route('/rate/search',methods = ['POST'])
+def rate_searchPOST():
+    data = request.get_json()
+    rateList = Rate.query.filter_by(product_id = data.get('product_id'),order_id = data.get('order_id')).all()
+    return jsonify([rate.to_dict() for rate in rateList])
+
 @app.route('/rate/add/<user_id>',methods=['POST'])
 def rate_add(user_id):
     data = request.get_json()
     rate = Rate(
         user_id=user_id,
         product_id=data['product_id'],
+        order_id = data['order_id'],
         rate = data['rate'],
         review=data.get('review'),
     )
@@ -516,7 +548,7 @@ def rate_delete(id):
         db.session.delete(reply)
     db.session.delete(rate)
     db.session.commit()
-    return '', 204
+    return '', 200
 
 @app.route('/reply/view/<rate_id>',methods=['GET'])
 def reply_view(rate_id):
