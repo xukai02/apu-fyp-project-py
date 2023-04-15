@@ -1,8 +1,15 @@
-from flask import Flask, Response, request, jsonify, redirect, url_for
+from datetime import datetime
+from gzip import compress
+import gzip
+from io import BytesIO
+import time
+from flask import Flask, Response, request, jsonify, redirect, url_for, json
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 import os
 from azure.storage.blob import BlobServiceClient
+
+from image_azure_blob_utils import *
 
 import sqlite3
 
@@ -44,6 +51,7 @@ def display_photo():
         photo.append(blob.name)
         blob_client=container_client.get_blob_client(blob.name)
         url = blob_client.url
+        print(url)
     return jsonify(photo)
 
 @app.route("/display/<name>")
@@ -148,7 +156,7 @@ class Cart(db.Model):
             'id':self.id,
             'user_id':self.user_id,
             'product_id':self.product_id,
-            'product':self.product.to_dict(),
+            'product':self.product.to_dict() if self.product else None,
             'quantity':self.quantity
         }
 
@@ -301,11 +309,6 @@ def shop_update(id):
     db.session.commit()
     return jsonify(shop.to_dict()),200
 
-@app.route('/product/view/<shop_id>',methods=['GET'])
-def product_viewByShop(shop_id):
-    products = Product.query.filter_by(shop_id = shop_id).all()
-    return jsonify([product.to_dict() for product in products])
-
 def create_address(user_id,address_data):
     address = Address(
         unit_number=address_data['unit_number'],
@@ -354,10 +357,38 @@ def product_view():
     products = Product.query.all()
     return jsonify([product.to_dict() for product in products])
 
+@app.route('/product/view/<shop_id>',methods=['GET'])
+def product_viewByShop(shop_id):
+    products = Product.query.filter_by(shop_id = shop_id).all()
+    dicts=[]
+    for product in products:
+        dict = product.to_dict()
+        # dict['images'] = getImagesByProductId(product_container_name,product.id)
+        dicts.append(dict)
+    return jsonify(dicts)
+    # return jsonify([product.to_dict() for product in products])
+
 @app.route('/product/search/<id>',methods=['GET'])
 def product_search(id):
     product = Product.query.get_or_404(id)
-    return jsonify(product.to_dict())
+    dict = product.to_dict()
+    dict['images'] = getImagesByProductId(product_container_name,product.id)
+
+    jsonBody = jsonify(dict)
+
+    # Compress JSON string
+    compressed_data = gzip.compress(json.dumps(dict).encode('utf-8'))
+
+    # Create a Flask response object with compressed data
+    response = Response(compressed_data, status=200, mimetype='application/json')
+    # gzip_buffer = BytesIO()
+    # with gzip.GzipFile(mode='wb', fileobj=gzip_buffer) as gzip_file:
+    #     gzip_file.write(json.data)
+    # response = Response(gzip_buffer.getvalue())
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Content-Length'] = len(compressed_data)
+    # return response
+    return jsonify(dict)
 
 @app.route('/product/add/<shop_id>',methods=["POST"])
 def product_add(shop_id):
@@ -371,6 +402,18 @@ def product_add(shop_id):
     )
     db.session.add(product)
     db.session.commit()
+
+    images = []
+    for image in data.get('images'):
+        images.append(
+            {
+            'name': str(product.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(product_container_name,images)
+
     return jsonify(product.to_dict())
 
 @app.route('/product/update/<id>',methods=['PUT','POST'])
@@ -382,6 +425,20 @@ def product_update(id):
     product.price = data['price']
     product.image=data['image']
     db.session.commit()
+
+    deleteImagesByProductId(product_container_name,product.id)
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(product.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(product_container_name,images)
+
     return jsonify(product.to_dict())
 
 @app.route('/product/delete/<id>',methods=['DELETE','POST'])
@@ -389,6 +446,7 @@ def product_delete(id):
     product = Product.query.get_or_404(id)
     db.session.delete(product)
     db.session.commit()
+    deleteImagesByProductId(product_container_name,product.id)
     return '',200
 
 @app.route('/order/view',methods=['GET'])
@@ -504,11 +562,18 @@ def cart_delete(id):
 @app.route('/rate/view/<product_id>',methods=['GET'])
 def rate_view(product_id):
     rateList = Rate.query.filter_by(product_id=product_id).all()
-    return jsonify([rate.to_dict() for rate in rateList])
+    rates = []
+    for rate in rateList:
+        dict = rate.to_dict()
+        dict['images'] = getImagesByProductId(rate_container_name,rate.id)
+        rates.append(dict)
+    return jsonify(rates)
 
 @app.route('/rate/search/<id>',methods=['GET'])
 def rate_search(id):
     rate = Rate.query.get_or_404(id)
+    dict = rate.to_dict()
+    dict['images'] = getImagesByProductId(rate_container_name,rate.id)
     return jsonify(rate.to_dict())
 
 @app.route('/rate/search',methods = ['POST'])
@@ -529,6 +594,19 @@ def rate_add(user_id):
     )
     db.session.add(rate)
     db.session.commit()
+    
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(rate.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(rate_container_name,images)
+
     return jsonify(rate.to_dict())
 
 @app.route('/rate/update/<id>',methods=['PUT','POST'])
@@ -538,6 +616,20 @@ def rate_update(id):
     rate.rate=data['rate']
     rate.review = data['review']
     db.session.commit()
+
+    deleteImagesByProductId(rate_container_name,rate.id)
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(rate.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(rate_container_name,images)
+
     return jsonify(rate.to_dict())
 
 @app.route('/rate/delete/<id>',methods=['DELETE','POST'])
@@ -548,6 +640,9 @@ def rate_delete(id):
         db.session.delete(reply)
     db.session.delete(rate)
     db.session.commit()
+    
+    deleteImagesByProductId(rate_container_name,rate.id)
+
     return '', 200
 
 @app.route('/reply/view/<rate_id>',methods=['GET'])
