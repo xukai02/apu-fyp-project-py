@@ -330,6 +330,20 @@ def register_user():
         create_address(user.id,data_address)
     return jsonify(user.to_dict())
 
+@app.route('/changepassword',methods=['POST'])
+def changepassword():
+    data = request.get_json()
+    oldpassword = data['oldpassword']
+    newpassword = data['newpassword']
+    user = User.query.filter_by(id=data['id']).first()
+
+    if oldpassword != user.password:
+        return jsonify("Incorrect Password"),400
+    
+    user.password = newpassword
+    db.session.commit()
+    return jsonify(user.to_dict())
+
 @app.route('/shop/add',methods=['POST'])
 def shop_add():
     data = request.get_json()
