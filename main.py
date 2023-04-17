@@ -10,6 +10,7 @@ import os
 from azure.storage.blob import BlobServiceClient
 
 from image_azure_blob_utils import *
+import azure_computer_vision
 
 import sqlite3
 
@@ -130,9 +131,19 @@ class Product(db.Model):
     image = db.Column(db.String(255), nullable=True)
     shop_id = db.Column(db.Integer,db.ForeignKey('shop.id'),nullable=False)
     shop = db.relationship('Shop')
+    categories = db.Column(db.String(255),nullable = True)
+    brand = db.Column(db.String(100),nullable=True)
+    variations = db.Column(db.String(255),nullable = True)
+    is_deleted = db.Column(db.Boolean,nullable = False, default = False)
     # user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
 
     def to_dict(self):
+        sizes=None
+        colors=None
+        if(self.variations):
+            variationsList = str(self.variations).split(";")
+            sizes = variationsList[0].split("|") if variationsList[0] != "" else None
+            colors = variationsList[1].split("|") if variationsList[1] != "" else None
         return {
             'id': self.id,
             'name': self.name,
@@ -140,7 +151,12 @@ class Product(db.Model):
             'price': self.price,
             'image': self.image,
             'shop_id':self.shop_id,
-            'shop':self.shop.to_dict()
+            'shop':self.shop.to_dict(),
+            'brand':self.brand,
+            'categories': str(self.categories).split('|') if self.categories else None,
+            'sizes': sizes,
+            'colors': colors,
+            'is_deleted': self.is_deleted,
             # 'user_id': self.user_id
         }
     
@@ -150,14 +166,23 @@ class Cart(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     product = db.relationship('Product')
     quantity = db.Column(db.Integer, nullable=False)
+    variations = db.Column(db.String(100),nullable=True)
 
     def to_dict(self):
+        sizes=None
+        colors=None
+        if(self.variations):
+            variationsList = str(self.variations).split(";")
+            sizes = variationsList[0] if variationsList[0] != "" else None
+            colors = variationsList[1] if variationsList[1] != "" else None
         return {
             'id':self.id,
             'user_id':self.user_id,
             'product_id':self.product_id,
             'product':self.product.to_dict() if self.product else None,
-            'quantity':self.quantity
+            'quantity':self.quantity,
+            'size':sizes,
+            'color':colors,
         }
 
 class Order(db.Model):
@@ -171,14 +196,15 @@ class Order(db.Model):
     status = db.Column(db.String(25),nullable=False)
 
     def to_dict(self):
-        return {
-            'id':self.id,
-            'user_id':self.user_id,
-            'user': self.user.to_dict(),
-            'address_id':self.address_id,
-            'address':self.address.to_dict() if self.address else None,
-            'total_price':self.total_price,
-            'products':[{
+        products =[]
+        for product, order_product in zip(self.products, OrderProduct.query.filter_by(order_id=self.id).all()):
+            sizes=None
+            colors=None
+            if(order_product.variations):
+                variationsList = str(order_product.variations).split(";")
+                sizes = variationsList[0] if variationsList[0] != "" else None
+                colors = variationsList[1] if variationsList[1] != "" else None
+            product = {
                 'id':product.id,
                 'name': product.name,
                 'description': product.description,
@@ -186,8 +212,29 @@ class Order(db.Model):
                 'image': product.image,
                 'shop_id': product.shop_id,
                 'shop':product.shop.to_dict(),
-                'quantity':order_product.quantity
-            } for product, order_product in zip(self.products,OrderProduct.query.filter_by(order_id=self.id).all())],
+                'quantity':order_product.quantity,
+                'size':sizes,
+                'color':colors,
+            }
+            products.append(product)
+        return {
+            'id':self.id,
+            'user_id':self.user_id,
+            'user': self.user.to_dict(),
+            'address_id':self.address_id,
+            'address':self.address.to_dict() if self.address else None,
+            'total_price':self.total_price,
+            'products':products,
+            # 'products':[{
+            #     'id':product.id,
+            #     'name': product.name,
+            #     'description': product.description,
+            #     'price': product.price,
+            #     'image': product.image,
+            #     'shop_id': product.shop_id,
+            #     'shop':product.shop.to_dict(),
+            #     'quantity':order_product.quantity
+            # } for product, order_product in zip(self.products,OrderProduct.query.filter_by(order_id=self.id).all())],
             # 'products':[product.to_dict() for product in self.products],
             'status':self.status
         }
@@ -196,6 +243,7 @@ class OrderProduct(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    variations = db.Column(db.String(100),nullable=True)
     quantity = db.Column(db.Integer, nullable=False)
 
 class Rate(db.Model):
@@ -354,12 +402,12 @@ def delete(id):
 
 @app.route('/product/view',methods=['GET'])
 def product_view():
-    products = Product.query.all()
+    products = Product.query.filter_by(is_deleted=False).all()
     return jsonify([product.to_dict() for product in products])
 
 @app.route('/product/view/<shop_id>',methods=['GET'])
 def product_viewByShop(shop_id):
-    products = Product.query.filter_by(shop_id = shop_id).all()
+    products = Product.query.filter_by(shop_id = shop_id, is_deleted=False).all()
     dicts=[]
     for product in products:
         dict = product.to_dict()
@@ -373,32 +421,80 @@ def product_search(id):
     product = Product.query.get_or_404(id)
     dict = product.to_dict()
     dict['images'] = getImagesByProductId(product_container_name,product.id)
-
-    jsonBody = jsonify(dict)
-
-    # Compress JSON string
-    compressed_data = gzip.compress(json.dumps(dict).encode('utf-8'))
-
-    # Create a Flask response object with compressed data
-    response = Response(compressed_data, status=200, mimetype='application/json')
-    # gzip_buffer = BytesIO()
-    # with gzip.GzipFile(mode='wb', fileobj=gzip_buffer) as gzip_file:
-    #     gzip_file.write(json.data)
-    # response = Response(gzip_buffer.getvalue())
-    response.headers['Content-Encoding'] = 'gzip'
-    response.headers['Content-Length'] = len(compressed_data)
-    # return response
     return jsonify(dict)
+
+@app.route('/product/search',methods=['POST'])
+def product_search_filter():
+    data = request.get_json()
+    shop = []
+    if data.get('user_id'):
+        shop = Shop.query.filter_by(user_id = data.get('user_id')).all()
+    # shop = Shop.query.filter_by(user_id = data['user_id']).first()
+    productsQuery = Product.query.filter_by(is_deleted=False)
+    if data.get('shop_id'):
+        productsQuery = productsQuery.filter_by(shop_id = data.get('shop_id'))
+    if shop:
+        productsQuery = productsQuery.filter(Product.shop_id!=shop[0].id)
+    products = productsQuery.all()
+    # products = Product.query.filter_by(is_deleted=False).all()
+    # if(shop):
+    #     products = Product.query.filter_by(is_deleted=False).filter(Product.shop_id!=shop.id).all()
+    search_text = data.get('search_text')
+    sort_by = data.get("sort_by")
+    sort_order = data.get("sort_order")
+    productList = []
+    for product in products:
+        relevantCount = 0
+        if search_text.lower() in product.name.lower():
+            relevantCount +=1
+        if search_text.lower() in product.description.lower():
+            relevantCount+=1
+        if product.categories and search_text.lower() in product.categories.lower():
+            relevantCount+=1
+        if product.brand and search_text.lower() in product.brand.lower():
+            relevantCount+=1
+        if product.variations and search_text.lower() in product.variations.lower():
+            relevantCount+=1
+        if relevantCount != 0:
+            productList.append({
+                'product':product,
+                'price':product.price,
+                'relevantCount':relevantCount,
+            })
+    if sort_by == "rel":
+        sorted_list = sorted(productList, key=lambda x: x["relevantCount"],reverse=True)
+    elif sort_by == "price":
+        sorted_list = sorted(productList, key=lambda x: x["price"],reverse=True)
+    if sort_order == "asc":
+        sorted_list = sorted_list[::-1]
+
+    return jsonify([sorted['product'].to_dict() for sorted in sorted_list])
+        
+
 
 @app.route('/product/add/<shop_id>',methods=["POST"])
 def product_add(shop_id):
     data = request.get_json()
+    categories = data['categories']
+
+    sizes = data.get('sizes')
+    colors = data.get('colors')
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+    
     product = Product(
         name=data['name'],
         description=data['description'],
         price=data['price'],
-        image=data['image'],
-        shop_id=shop_id
+        shop_id=shop_id,
+        brand=data.get('brand'),
+        categories= "|".join(categories),
+        variations = variations,
+        is_deleted=False,
     )
     db.session.add(product)
     db.session.commit()
@@ -407,23 +503,40 @@ def product_add(shop_id):
     for image in data.get('images'):
         images.append(
             {
-            'name': str(product.id) + '/' + str(datetime.now()) + '.png',
+            'name': str(product.id) + '/' + str(datetime.now()).replace(" ","_") + '.png',
             'image':image,
             }
         )
         time.sleep(.000001)
     uploadImages(product_container_name,images)
 
+    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    db.session.commit()
+
     return jsonify(product.to_dict())
 
 @app.route('/product/update/<id>',methods=['PUT','POST'])
 def product_update(id):
-    product = Product.query.get_or_404(id)
+    product = Product.query.get(id)
     data = request.get_json()
+    
+    categories = data['categories']
+    sizes = data.get('sizes')
+    colors = data.get('colors')
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+    
     product.name = data['name']
     product.description = data['description']
     product.price = data['price']
-    product.image=data['image']
+    product.brand = data.get('brand')
+    # product.image=data['image']
+    product.categories = "|".join(categories)
+    product.variations = variations
     db.session.commit()
 
     deleteImagesByProductId(product_container_name,product.id)
@@ -432,21 +545,25 @@ def product_update(id):
     for image in imageList:
         images.append(
             {
-            'name': str(product.id) + '/' + str(datetime.now()) + '.png',
+            'name': str(product.id) + '/' + str(datetime.now()).replace(" ","_") + '.png',
             'image':image,
             }
         )
         time.sleep(.000001)
     uploadImages(product_container_name,images)
 
+    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    db.session.commit()
+
     return jsonify(product.to_dict())
 
 @app.route('/product/delete/<id>',methods=['DELETE','POST'])
 def product_delete(id):
     product = Product.query.get_or_404(id)
-    db.session.delete(product)
+    product.is_deleted = True
+    # deleteImagesByProductId(product_container_name,product.id)
+    # db.session.delete(product)
     db.session.commit()
-    deleteImagesByProductId(product_container_name,product.id)
     return '',200
 
 @app.route('/order/view',methods=['GET'])
@@ -492,10 +609,20 @@ def orderproduct_add(order_id):
     data=request.get_json()
     orderproduct_data = data['order_product']
     for orderproduct in orderproduct_data:
+        sizes = orderproduct['size']
+        colors = orderproduct['color']
+        variations = ""
+        if(sizes):
+            variations+=sizes
+        variations+=";"
+        if(colors):
+            variations+=colors
+
         orderproducts.append(OrderProduct(
             order_id=order_id,
             product_id=orderproduct['product']['id'],
-            quantity=orderproduct['quantity']
+            quantity=orderproduct['quantity'],
+            variations = variations,
         ))
     db.session.add_all(orderproducts)
     db.session.commit()
@@ -532,13 +659,25 @@ def cart_search(id):
 def cart_add(user_id):
     data = request.get_json()
     cart = Cart.query.filter_by(user_id=user_id,product_id=data['product_id']).first()
+    
+    sizes = data['size']
+    colors = data['color']
+    variations = ""
+    if(sizes):
+        variations+=sizes
+    variations+=";"
+    if(colors):
+        variations+=colors
+
     if(cart):
         cart.quantity = data['quantity']
+        cart.variations = variations
     else:
         cart = Cart(
             user_id = user_id,
             product_id = data['product_id'],
-            quantity = data['quantity']
+            quantity = data['quantity'],
+            variations = variations,
         )
         db.session.add(cart)
     db.session.commit()
@@ -548,7 +687,17 @@ def cart_add(user_id):
 def cart_update(id):
     data = request.get_json()
     cart = Cart.query.get_or_404(id)
+    sizes = data['size']
+    colors = data['color']
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+
     cart.quantity = data['quantity']
+    cart.variations = variations
     db.session.commit()
     return jsonify(cart.to_dict())
 
@@ -703,6 +852,13 @@ def create_user():
     db.session.add(user)
     db.session.commit()
     return jsonify(user.to_dict()), 201
+
+@app.route('/azurecomputervision',methods=['POST'])
+def azurecomputervision():
+    data = request.get_json()
+    dict = azure_computer_vision.getImageDetails(data['image'])
+    return jsonify(dict)
+
 
 @app.route("/",methods=['GET'])
 def home():
