@@ -12,6 +12,13 @@ from azure.storage.blob import BlobServiceClient
 from image_azure_blob_utils import *
 import azure_computer_vision
 
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+import urllib
+from urllib.parse import quote_plus
+import pyodbc
+
 import sqlite3
 
 app = Flask(__name__)
@@ -24,76 +31,97 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
 
-connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
-container_name='photos'
+Model = declarative_base()
 
-blob_service_client = BlobServiceClient.from_connection_string(connect_str)
-try:
-    container_client = blob_service_client.get_container_client(container_name)
-    container_client.get_container_properties()
-except Exception as ex:
-    container_client = blob_service_client.create_container(container_name)
+driver = '{ODBC Driver 17 for SQL Server}'
+server = 'fyp-imageshop-server.database.windows.net'
+database = 'fyp-imageshop-db'
+user = 'admin-sql'
+password = '@Fyp1234'
+connect_str = "mssql+pyodbc:///?odbc_connect=" + quote_plus(
+    'Driver=%s;' %driver + 
+    'Server=tcp:%s,1433;' % server+
+    'Database=%s;' %database +
+    'Uid=%s;' %user +
+    'Pwd={%s};' % password +
+    'Encrypt=yes;' +
+    'TrustServerCertificate=no;' +
+    'Connection Timeout=30;'
+)
+engine = create_engine(connect_str)
+session=Session(engine)
 
-@app.route('/viewphoto')
-def view_photo():
-    return '''
-    <h1>upload photo</h1>
-    <form method="post" action="/uploadphotos"
-        enctype="multipart/form-data">
-        <input type="file" name="photo" multiple/>
-        <input type="submit"/>
-    </form>'''
+# connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
+# container_name='photos'
 
-@app.route('/displayphoto')
-def display_photo():
-    photo = []
-    blob_list = container_client.list_blobs()
-    for blob in blob_list:
-        photo.append(blob.name)
-        blob_client=container_client.get_blob_client(blob.name)
-        url = blob_client.url
-        print(url)
-    return jsonify(photo)
+# blob_service_client = BlobServiceClient.from_connection_string(connect_str)
+# try:
+#     container_client = blob_service_client.get_container_client(container_name)
+#     container_client.get_container_properties()
+# except Exception as ex:
+#     container_client = blob_service_client.create_container(container_name)
 
-@app.route("/display/<name>")
-def display(name):
-    blob_client = container_client.get_blob_client(name)
-    stream = blob_client.download_blob().readall()
-    print(stream[0:500])
-    return Response(stream, mimetype="image/jpeg")
+# @app.route('/viewphoto')
+# def view_photo():
+#     return '''
+#     <h1>upload photo</h1>
+#     <form method="post" action="/uploadphotos"
+#         enctype="multipart/form-data">
+#         <input type="file" name="photo" multiple/>
+#         <input type="submit"/>
+#     </form>'''
 
+# @app.route('/displayphoto')
+# def display_photo():
+#     photo = []
+#     blob_list = container_client.list_blobs()
+#     for blob in blob_list:
+#         photo.append(blob.name)
+#         blob_client=container_client.get_blob_client(blob.name)
+#         url = blob_client.url
+#         print(url)
+#     return jsonify(photo)
 
-@app.route('/uploadphotos',methods=['POST'])
-def upload_photos():
-    filenames=""
-    for file in request.files.getlist("photo"):
-        filenames += file.filename + " "
-        try:
-            container_client.upload_blob(file.filename,file)
-            filenames += file.filename + "<br/>"
-        except Exception as ex:
-            print(ex)
-            print("Ignore duplicate files")
-    return "Upload" + filenames
-
-class TodoItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    is_executed = db.Column(db.Boolean)
-
-    def __init__(self, name, is_executed):
-        self.name = name
-        self.is_executed = is_executed
-
-    def to_dict(self):
-        return {
-            'id':self.id,
-            'name':self.name,
-            'is_executed': self.is_executed
-        }
+# @app.route("/display/<name>")
+# def display(name):
+#     blob_client = container_client.get_blob_client(name)
+#     stream = blob_client.download_blob().readall()
+#     print(stream[0:500])
+#     return Response(stream, mimetype="image/jpeg")
 
 
-class User(db.Model):
+# @app.route('/uploadphotos',methods=['POST'])
+# def upload_photos():
+#     filenames=""
+#     for file in request.files.getlist("photo"):
+#         filenames += file.filename + " "
+#         try:
+#             container_client.upload_blob(file.filename,file)
+#             filenames += file.filename + "<br/>"
+#         except Exception as ex:
+#             print(ex)
+#             print("Ignore duplicate files")
+#     return "Upload" + filenames
+
+# class TodoItem(Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     name = db.Column(db.String(100))
+#     is_executed = db.Column(db.Boolean)
+
+#     def __init__(self, name, is_executed):
+#         self.name = name
+#         self.is_executed = is_executed
+
+#     def to_dict(self):
+#         return {
+#             'id':self.id,
+#             'name':self.name,
+#             'is_executed': self.is_executed
+#         }
+
+
+class User(Model):
+    __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), nullable=False, unique=True)
@@ -119,7 +147,8 @@ class User(db.Model):
             # 'address': self.address
         }
     
-class Shop(db.Model):
+class Shop(Model):
+    __tablename__= 'shop'
     id = db.Column(db.Integer,primary_key=True)
     name = db.Column(db.String(100),nullable = False)
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
@@ -137,7 +166,8 @@ class Shop(db.Model):
             'user_id':self.user_id
         }
 
-class Product(db.Model):
+class Product(Model):
+    __tablename__ = 'product'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255), nullable=False)
@@ -174,7 +204,8 @@ class Product(db.Model):
             # 'user_id': self.user_id
         }
     
-class Cart(db.Model):
+class Cart(Model):
+    __tablename__ = 'cart'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
@@ -199,7 +230,8 @@ class Cart(db.Model):
             'color':colors,
         }
 
-class Order(db.Model):
+class Order(Model):
+    __tablename__='order'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User')
@@ -253,14 +285,16 @@ class Order(db.Model):
             'status':self.status
         }
 
-class OrderProduct(db.Model):
+class OrderProduct(Model):
+    __tablename__='order_product'
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     variations = db.Column(db.String(100),nullable=True)
     quantity = db.Column(db.Integer, nullable=False)
 
-class Rate(db.Model):
+class Rate(Model):
+    __tablename__='rate'
     id = db.Column(db.Integer,primary_key=True)
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
     user = db.relationship('User')
@@ -285,7 +319,8 @@ class Rate(db.Model):
             'reply':self.reply.to_dict() if self.reply else None
         }
 
-class Reply(db.Model):
+class Reply(Model):
+    __tablename__='reply'
     id = db.Column(db.Integer,primary_key=True)
     reply = db.Column(db.String(255),nullable=False)
     # rate_id = db.Column(db.Integer,db.ForeignKey('rate.id'),nullable=False)
@@ -297,7 +332,8 @@ class Reply(db.Model):
             # 'rate_id':self.rate_id
         }
 
-class Address(db.Model):
+class Address(Model):
+    __tablename__='address'
     id = db.Column(db.Integer,primary_key=True)
     unit_number = db.Column(db.String(50),nullable=False)
     street = db.Column(db.String(50),nullable=False)
@@ -338,8 +374,8 @@ def register_user():
     user = User(name=data['name'],
                 email=data['email'],
                 password=data['password'])
-    db.session.add(user)
-    db.session.commit()
+    session.add(user)
+    session.commit()
     if(data_address):
         create_address(user.id,data_address)
     return jsonify(user.to_dict())
@@ -355,7 +391,7 @@ def changepassword():
         return jsonify("Incorrect Password"),400
     
     user.password = newpassword
-    db.session.commit()
+    session.commit()
     return jsonify(user.to_dict())
 
 @app.route('/user/<id>',methods=['GET'])
@@ -379,7 +415,7 @@ def userupdate():
         imageUrl = getImageUrl(PROFILE_CONTAINER_NAME,data['id'])
     user.image = imageUrl
 
-    db.session.commit()
+    session.commit()
     return jsonify(user.to_dict()),200
 
 @app.route('/shop/add',methods=['POST'])
@@ -389,8 +425,8 @@ def shop_add():
         name=data['name'],
         user_id = data['user_id']
     )
-    db.session.add(shop)
-    db.session.commit()
+    session.add(shop)
+    session.commit()
     return jsonify(shop.to_dict())
 
 @app.route('/shop/view/<user_id>',methods=['GET'])
@@ -416,7 +452,7 @@ def shop_update(id):
         imageUrl = getImageUrl(SHOPPROFILE_CONTAINER_NAME,id)
     shop.image = imageUrl
 
-    db.session.commit()
+    session.commit()
     return jsonify(shop.to_dict()),200
 
 def create_address(user_id,address_data):
@@ -428,8 +464,8 @@ def create_address(user_id,address_data):
         state=address_data['state'],
         user_id=user_id
         )
-    db.session.add(address)
-    db.session.commit()
+    session.add(address)
+    session.commit()
     return address
 
 @app.route('/address/add/<user_id>',methods=['POST'])
@@ -452,14 +488,14 @@ def put(id):
     address.city = data['city']
     address.postal_code = data['postal_code']
     address.state = data['state']
-    db.session.commit()
+    session.commit()
     return jsonify(address.to_dict())
 
 @app.route('/address/delete/<id>',methods=['DELETE','POST'])
 def delete(id):
     address = Address.query.get_or_404(id)
-    db.session.delete(address)
-    db.session.commit()
+    session.delete(address)
+    session.commit()
     return '',200
 
 @app.route('/product/view',methods=['GET'])
@@ -558,8 +594,8 @@ def product_add(shop_id):
         variations = variations,
         is_deleted=False,
     )
-    db.session.add(product)
-    db.session.commit()
+    session.add(product)
+    session.commit()
 
     images = []
     for image in data.get('images'):
@@ -573,7 +609,7 @@ def product_add(shop_id):
     uploadImages(product_container_name,images)
 
     product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
-    db.session.commit()
+    session.commit()
 
     return jsonify(product.to_dict())
 
@@ -599,7 +635,7 @@ def product_update(id):
     # product.image=data['image']
     product.categories = "|".join(categories)
     product.variations = variations
-    db.session.commit()
+    session.commit()
 
     deleteImagesByProductId(product_container_name,product.id)
     imageList = data.get('images')
@@ -615,7 +651,7 @@ def product_update(id):
     uploadImages(product_container_name,images)
 
     product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
-    db.session.commit()
+    session.commit()
 
     return jsonify(product.to_dict())
 
@@ -624,8 +660,8 @@ def product_delete(id):
     product = Product.query.get_or_404(id)
     product.is_deleted = True
     # deleteImagesByProductId(product_container_name,product.id)
-    # db.session.delete(product)
-    db.session.commit()
+    # session.delete(product)
+    session.commit()
     return '',200
 
 @app.route('/order/view',methods=['GET'])
@@ -661,8 +697,8 @@ def order_add(user_id):
         total_price=data['total_price'],
         status=data['status']
     )
-    db.session.add(order)
-    db.session.commit()
+    session.add(order)
+    session.commit()
     orderproduct_add(order.id)
     return jsonify(order.to_dict())
 
@@ -686,25 +722,25 @@ def orderproduct_add(order_id):
             quantity=orderproduct['quantity'],
             variations = variations,
         ))
-    db.session.add_all(orderproducts)
-    db.session.commit()
+    session.add_all(orderproducts)
+    session.commit()
 
 @app.route('/order/update/<id>',methods=['PUT','POST'])
 def order_update(id):
     order = Order.query.get_or_404(id)
     data = request.get_json()
     order.status = data['status']
-    db.session.commit()
+    session.commit()
     return jsonify(order.to_dict())
 
 @app.route('/order/delete/<id>',methods=['DELETE','POST'])
 def order_delete(id):
     order = Order.query.get_or_404(id)
     order_products = OrderProduct.query.filter_by(order_id=order.id).all()
-    db.session.delete(order)
+    session.delete(order)
     for order_product in order_products:
-        db.session.delete(order_product)
-    db.session.commit()
+        session.delete(order_product)
+    session.commit()
     return '',204
 
 @app.route('/cart/view/<user_id>',methods=['GET'])
@@ -741,8 +777,8 @@ def cart_add(user_id):
             quantity = data['quantity'],
             variations = variations,
         )
-        db.session.add(cart)
-    db.session.commit()
+        session.add(cart)
+    session.commit()
     return jsonify(cart.to_dict())
 
 @app.route('/cart/update/<id>',methods=['PUT','POST'])
@@ -760,14 +796,14 @@ def cart_update(id):
 
     cart.quantity = data['quantity']
     cart.variations = variations
-    db.session.commit()
+    session.commit()
     return jsonify(cart.to_dict())
 
 @app.route('/cart/delete/<id>',methods=['DELETE','POST'])
 def cart_delete(id):
     cart = Cart.query.get_or_404(id)
-    db.session.delete(cart)
-    db.session.commit()
+    session.delete(cart)
+    session.commit()
     return "",200
 
 @app.route('/rate/view/<product_id>',methods=['GET'])
@@ -803,8 +839,8 @@ def rate_add(user_id):
         rate = data['rate'],
         review=data.get('review'),
     )
-    db.session.add(rate)
-    db.session.commit()
+    session.add(rate)
+    session.commit()
     
     imageList = data.get('images')
     images = []
@@ -826,7 +862,7 @@ def rate_update(id):
     rate=Rate.query.get_or_404(id)
     rate.rate=data['rate']
     rate.review = data['review']
-    db.session.commit()
+    session.commit()
 
     deleteImagesByProductId(rate_container_name,rate.id)
     imageList = data.get('images')
@@ -848,9 +884,9 @@ def rate_delete(id):
     rate = Rate.query.get_or_404(id)
     if(rate.reply_id):
         reply = Reply.query.get_or_404(rate.reply_id)
-        db.session.delete(reply)
-    db.session.delete(rate)
-    db.session.commit()
+        session.delete(reply)
+    session.delete(rate)
+    session.commit()
     
     deleteImagesByProductId(rate_container_name,rate.id)
 
@@ -879,10 +915,10 @@ def reply_add(rate_id):
         reply = Reply(
             reply = data['reply']
         )
-        db.session.add(reply)
-        db.session.commit()
+        session.add(reply)
+        session.commit()
         rate.reply_id = reply.id
-        db.session.commit()
+        session.commit()
     return jsonify(rate.to_dict())
 
 @app.route('/reply/update/<id>',methods=['PUT','POST'])
@@ -890,16 +926,16 @@ def reply_update(id):
     data = request.get_json()
     reply = Reply.query.get_or_404(id)
     reply.reply = data['reply']
-    db.session.commit()
+    session.commit()
     return jsonify(reply.to_dict())
 
 @app.route('/reply/delete/<id>',methods=['DELETE','POST'])
 def reply_delete(id):
     reply = Reply.query.get_or_404(id)
-    db.session.delete(reply)
+    session.delete(reply)
     rate = Rate.query.filter_by(reply_id=id).first()
     rate.reply_id = None
-    db.session.commit()
+    session.commit()
     return '',204
 
 @app.route('/users', methods=['GET'])
@@ -911,8 +947,8 @@ def get_users():
 def create_user():
     data = request.get_json()
     user = User(name=data['name'], email=data['email'], password=data['password'])
-    db.session.add(user)
-    db.session.commit()
+    session.add(user)
+    session.commit()
     return jsonify(user.to_dict()), 201
 
 @app.route('/azurecomputervision',methods=['POST'])
@@ -922,56 +958,57 @@ def azurecomputervision():
     return jsonify(dict)
 
 
-@app.route("/",methods=['GET'])
-def home():
-    return jsonify({'msg':"Welcome"})
+# @app.route("/",methods=['GET'])
+# def home():
+#     return jsonify({'msg':"Welcome"})
 
-@app.route('/todo',methods=['POST'])
-def add_todo():
-    data=request.get_json()
-    name = request.json['name']
-    is_executed = request.json['is_executed']
+# @app.route('/todo',methods=['POST'])
+# def add_todo():
+#     data=request.get_json()
+#     name = request.json['name']
+#     is_executed = request.json['is_executed']
 
-    todo = TodoItem(name,is_executed)
-    db.session.add(todo)
-    db.session.commit()
-    return jsonify(todo.to_dict()),201
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''
-        INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
-    ''',(name,is_executed))
+#     todo = TodoItem(name,is_executed)
+#     session.add(todo)
+#     session.commit()
+#     return jsonify(todo.to_dict()),201
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''
+#         INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
+#     ''',(name,is_executed))
 
-    conn.commit()
+#     conn.commit()
 
-    new_todo_item = TodoItem(name,is_executed)
-    # db.session.add(new_todo_item)
-    # db.session.commit()
+#     new_todo_item = TodoItem(name,is_executed)
+#     # session.add(new_todo_item)
+#     # session.commit()
 
-    return todo_schema.jsonify(new_todo_item)
+#     return todo_schema.jsonify(new_todo_item)
 
 
-@app.route('/todo',methods=['GET'])
-def get_todo():
-    todos=TodoItem.query.all()
-    return jsonify([todo.to_dict() for todo in todos])
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema''')
-    return jsonify(c.fetchall())
+# @app.route('/todo',methods=['GET'])
+# def get_todo():
+#     todos=TodoItem.query.all()
+#     return jsonify([todo.to_dict() for todo in todos])
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema''')
+#     return jsonify(c.fetchall())
 
-@app.route('/todo/<id>',methods=['PUT','PATCH'])
-def execute_todo(id):
-    todo = TodoItem.query.get(id)
-    db.session.commit()
-    return jsonify(todo)
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
-    return jsonify(c.fetchall())
+# @app.route('/todo/<id>',methods=['PUT','PATCH'])
+# def execute_todo(id):
+#     todo = TodoItem.query.get(id)
+#     session.commit()
+#     return jsonify(todo)
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
+#     return jsonify(c.fetchall())
 
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
+    Model.metadata.create_all(engine)
+    # with app.app_context():
+    #     db.create_all()
     app.run(debug=True,port=5000,host="0.0.0.0")
