@@ -101,12 +101,20 @@ class User(db.Model):
     address = db.relationship('Address')
     # address = db.Column(db.String(255), nullable=True)
     shop = db.relationship('Shop',backref='user')
+    gender = db.Column(db.String(6),nullable = True)
+    dob = db.Column(db.Integer,nullable=True)
+    phone_number = db.Column(db.String(20),nullable=True)
+    image=db.Column(db.String(255),nullable=True)
 
     def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,
             'email': self.email,
+            'gender':self.gender,
+            'dob':self.dob,
+            'phone_number': self.phone_number,
+            'image':self.image,
             'shop':self.shop[0].to_dict() if self.shop else None
             # 'address': self.address
         }
@@ -115,11 +123,17 @@ class Shop(db.Model):
     id = db.Column(db.Integer,primary_key=True)
     name = db.Column(db.String(100),nullable = False)
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    bio = db.Column(db.String(255),nullable = True)
+    phone_number = db.Column(db.String(20),nullable = True)
+    image = db.Column(db.String(255),nullable = True)
     # user = db.relationship("User",backref="shop")
     def to_dict(self):
         return {
             'id':self.id,
             'name':self.name,
+            'bio':self.bio,
+            'phone_number':self.phone_number,
+            'image':self.image,
             'user_id':self.user_id
         }
 
@@ -344,6 +358,30 @@ def changepassword():
     db.session.commit()
     return jsonify(user.to_dict())
 
+@app.route('/user/<id>',methods=['GET'])
+def userget(id):
+    user = User.query.get_or_404(id)
+    return jsonify(user.to_dict())
+
+@app.route('/user/update',methods=['POST'])
+def userupdate():
+    data = request.get_json()
+    user = User.query.get_or_404(data['id'])
+    user.name = data['name']
+    user.gender = data.get('gender')
+    user.dob = data.get('dob')
+    user.phone_number = data.get('phone_number')
+    
+    image = data.get('image')
+    imageUrl = None
+    if image:
+        uploadProfileImage(PROFILE_CONTAINER_NAME,data['id'],image)
+        imageUrl = getImageUrl(PROFILE_CONTAINER_NAME,data['id'])
+    user.image = imageUrl
+
+    db.session.commit()
+    return jsonify(user.to_dict()),200
+
 @app.route('/shop/add',methods=['POST'])
 def shop_add():
     data = request.get_json()
@@ -368,6 +406,16 @@ def shop_update(id):
     shop = Shop.query.get_or_404(id)
     data = request.get_json()
     shop.name = data['name']
+    shop.bio = data.get('bio')
+    shop.phone_number = data.get('phone_number')
+    
+    image = data.get('image')
+    imageUrl = None
+    if image:
+        uploadShopProfileImage(SHOPPROFILE_CONTAINER_NAME,id,image)
+        imageUrl = getImageUrl(SHOPPROFILE_CONTAINER_NAME,id)
+    shop.image = imageUrl
+
     db.session.commit()
     return jsonify(shop.to_dict()),200
 

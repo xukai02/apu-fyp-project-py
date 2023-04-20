@@ -7,6 +7,8 @@ connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZv
 container_name='photos'
 product_container_name = 'products'
 rate_container_name = 'rates'
+SHOPPROFILE_CONTAINER_NAME = 'shop-profile'
+PROFILE_CONTAINER_NAME = 'profile'
 
 blob_service_client = BlobServiceClient.from_connection_string(connect_str)
 try:
@@ -59,3 +61,43 @@ def deleteImagesByProductId(containerName, productId):
             blob_client = container_client.get_blob_client(blob.name)
             blob_client.delete_blob()
     return
+
+def uploadShopProfileImage(containerName, shopId, image):
+    container_client = getContainerClient(containerName)
+    blob_list = container_client.list_blobs()
+    for blob in blob_list:
+        if str(shopId) == str(blob.name).split('.')[0]:
+            blob_client = container_client.get_blob_client(blob.name)
+            blob_client.delete_blob()
+
+    container_client = getContainerClient(containerName)   
+    try:
+        container_client.upload_blob(shopId + '.png',base64.b64decode(image))
+    except Exception as ex:
+        print(ex)
+
+def uploadProfileImage(containerName, id, image):
+    container_client = getContainerClient(containerName)
+    blob_list = container_client.list_blobs()
+    for blob in blob_list:
+        if str(id) == str(blob.name).split('.')[0]:
+            blob_client = container_client.get_blob_client(blob.name)
+            blob_client.delete_blob()
+
+    container_client = getContainerClient(containerName)   
+    try:
+        container_client.upload_blob(str(id) + '.png',base64.b64decode(image))
+    except Exception as ex:
+        print(ex)
+
+def getImageUrl(containerName, imageName):
+    imageUrl = None
+    container_client = getContainerClient(containerName)
+    blob_list = container_client.list_blobs()
+    for blob in blob_list:
+        if str(imageName) == str(blob.name).split('.')[0]:
+            blob_client = container_client.get_blob_client(blob.name)
+            imageUrl = blob_client.url
+    return imageUrl
+
+    
