@@ -1,8 +1,16 @@
-from flask import Flask, Response, request, jsonify, redirect, url_for
+from datetime import datetime
+from gzip import compress
+import gzip
+from io import BytesIO
+import time
+from flask import Flask, Response, request, jsonify, redirect, url_for, json
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 import os
 from azure.storage.blob import BlobServiceClient
+
+from image_azure_blob_utils import *
+import azure_computer_vision
 
 import sqlite3
 
@@ -16,72 +24,73 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
 
-connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
-container_name='photos'
+# connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
+# container_name='photos'
 
-blob_service_client = BlobServiceClient.from_connection_string(connect_str)
-try:
-    container_client = blob_service_client.get_container_client(container_name)
-    container_client.get_container_properties()
-except Exception as ex:
-    container_client = blob_service_client.create_container(container_name)
+# blob_service_client = BlobServiceClient.from_connection_string(connect_str)
+# try:
+#     container_client = blob_service_client.get_container_client(container_name)
+#     container_client.get_container_properties()
+# except Exception as ex:
+#     container_client = blob_service_client.create_container(container_name)
 
-@app.route('/viewphoto')
-def view_photo():
-    return '''
-    <h1>upload photo</h1>
-    <form method="post" action="/uploadphotos"
-        enctype="multipart/form-data">
-        <input type="file" name="photo" multiple/>
-        <input type="submit"/>
-    </form>'''
+# @app.route('/viewphoto')
+# def view_photo():
+#     return '''
+#     <h1>upload photo</h1>
+#     <form method="post" action="/uploadphotos"
+#         enctype="multipart/form-data">
+#         <input type="file" name="photo" multiple/>
+#         <input type="submit"/>
+#     </form>'''
 
-@app.route('/displayphoto')
-def display_photo():
-    photo = []
-    blob_list = container_client.list_blobs()
-    for blob in blob_list:
-        photo.append(blob.name)
-        blob_client=container_client.get_blob_client(blob.name)
-        url = blob_client.url
-    return jsonify(photo)
+# @app.route('/displayphoto')
+# def display_photo():
+#     photo = []
+#     blob_list = container_client.list_blobs()
+#     for blob in blob_list:
+#         photo.append(blob.name)
+#         blob_client=container_client.get_blob_client(blob.name)
+#         url = blob_client.url
+#         print(url)
+#     return jsonify(photo)
 
-@app.route("/display/<name>")
-def display(name):
-    blob_client = container_client.get_blob_client(name)
-    stream = blob_client.download_blob().readall()
-    print(stream[0:500])
-    return Response(stream, mimetype="image/jpeg")
+# @app.route("/display/<name>")
+# def display(name):
+#     blob_client = container_client.get_blob_client(name)
+#     stream = blob_client.download_blob().readall()
+#     print(stream[0:500])
+#     return Response(stream, mimetype="image/jpeg")
 
 
-@app.route('/uploadphotos',methods=['POST'])
-def upload_photos():
-    filenames=""
-    for file in request.files.getlist("photo"):
-        filenames += file.filename + " "
-        try:
-            container_client.upload_blob(file.filename,file)
-            filenames += file.filename + "<br/>"
-        except Exception as ex:
-            print(ex)
-            print("Ignore duplicate files")
-    return "Upload" + filenames
+# @app.route('/uploadphotos',methods=['POST'])
+# def upload_photos():
+#     filenames=""
+#     for file in request.files.getlist("photo"):
+#         filenames += file.filename + " "
+#         try:
+#             container_client.upload_blob(file.filename,file)
+#             filenames += file.filename + "<br/>"
+#         except Exception as ex:
+#             print(ex)
+#             print("Ignore duplicate files")
+#     return "Upload" + filenames
 
-class TodoItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    is_executed = db.Column(db.Boolean)
+# class TodoItem(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     name = db.Column(db.String(100))
+#     is_executed = db.Column(db.Boolean)
 
-    def __init__(self, name, is_executed):
-        self.name = name
-        self.is_executed = is_executed
+#     def __init__(self, name, is_executed):
+#         self.name = name
+#         self.is_executed = is_executed
 
-    def to_dict(self):
-        return {
-            'id':self.id,
-            'name':self.name,
-            'is_executed': self.is_executed
-        }
+#     def to_dict(self):
+#         return {
+#             'id':self.id,
+#             'name':self.name,
+#             'is_executed': self.is_executed
+#         }
 
 
 class User(db.Model):
@@ -91,15 +100,42 @@ class User(db.Model):
     password = db.Column(db.String(100), nullable=False)
     address = db.relationship('Address')
     # address = db.Column(db.String(255), nullable=True)
+    shop = db.relationship('Shop',backref='user')
+    gender = db.Column(db.String(6),nullable = True)
+    dob = db.Column(db.Integer,nullable=True)
+    phone_number = db.Column(db.String(20),nullable=True)
+    image=db.Column(db.String(255),nullable=True)
 
     def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,
             'email': self.email,
+            'gender':self.gender,
+            'dob':self.dob,
+            'phone_number': self.phone_number,
+            'image':self.image,
+            'shop':self.shop[0].to_dict() if self.shop else None
             # 'address': self.address
         }
     
+class Shop(db.Model):
+    id = db.Column(db.Integer,primary_key=True)
+    name = db.Column(db.String(100),nullable = False)
+    user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    bio = db.Column(db.String(255),nullable = True)
+    phone_number = db.Column(db.String(20),nullable = True)
+    image = db.Column(db.String(255),nullable = True)
+    # user = db.relationship("User",backref="shop")
+    def to_dict(self):
+        return {
+            'id':self.id,
+            'name':self.name,
+            'bio':self.bio,
+            'phone_number':self.phone_number,
+            'image':self.image,
+            'user_id':self.user_id
+        }
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -107,16 +143,35 @@ class Product(db.Model):
     description = db.Column(db.String(255), nullable=False)
     price = db.Column(db.Float, nullable=False)
     image = db.Column(db.String(255), nullable=True)
-    user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    shop_id = db.Column(db.Integer,db.ForeignKey('shop.id'),nullable=False)
+    shop = db.relationship('Shop')
+    categories = db.Column(db.String(100),nullable = True)
+    brand = db.Column(db.String(100),nullable=True)
+    variations = db.Column(db.String(255),nullable = True)
+    is_deleted = db.Column(db.Boolean,nullable = False, default = False)
+    # user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
 
     def to_dict(self):
+        sizes=None
+        colors=None
+        if(self.variations):
+            variationsList = str(self.variations).split(";")
+            sizes = variationsList[0].split("|") if variationsList[0] != "" else None
+            colors = variationsList[1].split("|") if variationsList[1] != "" else None
         return {
             'id': self.id,
             'name': self.name,
             'description': self.description,
             'price': self.price,
             'image': self.image,
-            'user_id': self.user_id
+            'shop_id':self.shop_id,
+            'shop':self.shop.to_dict(),
+            'brand':self.brand,
+            'categories': str(self.categories).split('|') if self.categories else None,
+            'sizes': sizes,
+            'colors': colors,
+            'is_deleted': self.is_deleted,
+            # 'user_id': self.user_id
         }
     
 class Cart(db.Model):
@@ -125,39 +180,75 @@ class Cart(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     product = db.relationship('Product')
     quantity = db.Column(db.Integer, nullable=False)
+    variations = db.Column(db.String(100),nullable=True)
 
     def to_dict(self):
+        sizes=None
+        colors=None
+        if(self.variations):
+            variationsList = str(self.variations).split(";")
+            sizes = variationsList[0] if variationsList[0] != "" else None
+            colors = variationsList[1] if variationsList[1] != "" else None
         return {
             'id':self.id,
             'user_id':self.user_id,
             'product_id':self.product_id,
-            'product':self.product.to_dict(),
-            'quantity':self.quantity
+            'product':self.product.to_dict() if self.product else None,
+            'quantity':self.quantity,
+            'size':sizes,
+            'color':colors,
         }
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user = db.relationship('User')
     address_id=db.Column(db.Integer,db.ForeignKey('address.id'),nullable=False)
+    address = db.relationship('Address')
     total_price = db.Column(db.Float, nullable=False)
     products = db.relationship('Product', secondary='order_product')
     status = db.Column(db.String(25),nullable=False)
 
     def to_dict(self):
-        return {
-            'id':self.id,
-            'user_id':self.user_id,
-            'address_id':self.address_id,
-            'total_price':self.total_price,
-            'products':[{
+        products =[]
+        for product, order_product in zip(self.products, OrderProduct.query.filter_by(order_id=self.id).all()):
+            sizes=None
+            colors=None
+            if(order_product.variations):
+                variationsList = str(order_product.variations).split(";")
+                sizes = variationsList[0] if variationsList[0] != "" else None
+                colors = variationsList[1] if variationsList[1] != "" else None
+            product = {
                 'id':product.id,
                 'name': product.name,
                 'description': product.description,
                 'price': product.price,
                 'image': product.image,
-                'user_id': product.user_id,
-                'quantity':order_product.quantity
-            } for product, order_product in zip(self.products,OrderProduct.query.filter_by(order_id=self.id).all())],
+                'shop_id': product.shop_id,
+                'shop':product.shop.to_dict(),
+                'quantity':order_product.quantity,
+                'size':sizes,
+                'color':colors,
+            }
+            products.append(product)
+        return {
+            'id':self.id,
+            'user_id':self.user_id,
+            'user': self.user.to_dict(),
+            'address_id':self.address_id,
+            'address':self.address.to_dict() if self.address else None,
+            'total_price':self.total_price,
+            'products':products,
+            # 'products':[{
+            #     'id':product.id,
+            #     'name': product.name,
+            #     'description': product.description,
+            #     'price': product.price,
+            #     'image': product.image,
+            #     'shop_id': product.shop_id,
+            #     'shop':product.shop.to_dict(),
+            #     'quantity':order_product.quantity
+            # } for product, order_product in zip(self.products,OrderProduct.query.filter_by(order_id=self.id).all())],
             # 'products':[product.to_dict() for product in self.products],
             'status':self.status
         }
@@ -166,6 +257,7 @@ class OrderProduct(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    variations = db.Column(db.String(100),nullable=True)
     quantity = db.Column(db.Integer, nullable=False)
 
 class Rate(db.Model):
@@ -173,6 +265,7 @@ class Rate(db.Model):
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
     user = db.relationship('User')
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'),nullable=False)
+    order_id = db.Column(db.Integer,db.ForeignKey('order.id'),nullable = False)
     rate = db.Column(db.Integer,nullable=False)
     review = db.Column(db.String(255),nullable=True)
     # file = db.Column(db.String(500),nullable=True) # image/video
@@ -185,6 +278,7 @@ class Rate(db.Model):
             'user_id': self.user_id,
             'user':self.user.to_dict(),
             'product_id': self.product_id,
+            'order_id':self.order_id,
             'rate':self.rate,
             'review':self.review,
             'reply_id':self.reply_id,
@@ -222,19 +316,108 @@ class Address(db.Model):
             'state':self.state,
             'user_id':self.user_id
         }
+    
+@app.route('/login',methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(email = data['email']).first()
+    if(user):
+        if(user.password == data['password']):
+            return jsonify(user.to_dict()), 200
+        else:
+            return jsonify("Password Incorrect"), 400
+    else:
+        return jsonify("Account not exist"), 400
 
 @app.route('/register', methods=['POST'])
 def register_user():
     data = request.get_json()
     data_address = data.get('address')
     if(User.query.filter_by(email=data['email']).all()):
-        return jsonify("email exist")
-    user = User(name=data['name'],email=data['email'],password=data['password'])
+        return jsonify("email exist"), 400
+    user = User(name=data['name'],
+                email=data['email'],
+                password=data['password'])
     db.session.add(user)
     db.session.commit()
     if(data_address):
         create_address(user.id,data_address)
     return jsonify(user.to_dict())
+
+@app.route('/changepassword',methods=['POST'])
+def changepassword():
+    data = request.get_json()
+    oldpassword = data['oldpassword']
+    newpassword = data['newpassword']
+    user = User.query.filter_by(id=data['id']).first()
+
+    if oldpassword != user.password:
+        return jsonify("Incorrect Password"),400
+    
+    user.password = newpassword
+    db.session.commit()
+    return jsonify(user.to_dict())
+
+@app.route('/user/<id>',methods=['GET'])
+def userget(id):
+    user = User.query.get_or_404(id)
+    return jsonify(user.to_dict())
+
+@app.route('/user/update',methods=['POST'])
+def userupdate():
+    data = request.get_json()
+    user = User.query.get_or_404(data['id'])
+    user.name = data['name']
+    user.gender = data.get('gender')
+    user.dob = data.get('dob')
+    user.phone_number = data.get('phone_number')
+    
+    image = data.get('image')
+    imageUrl = None
+    if image:
+        uploadProfileImage(PROFILE_CONTAINER_NAME,data['id'],image)
+        imageUrl = getImageUrl(PROFILE_CONTAINER_NAME,data['id'])
+    user.image = imageUrl
+
+    db.session.commit()
+    return jsonify(user.to_dict()),200
+
+@app.route('/shop/add',methods=['POST'])
+def shop_add():
+    data = request.get_json()
+    shop = Shop(
+        name=data['name'],
+        user_id = data['user_id']
+    )
+    db.session.add(shop)
+    db.session.commit()
+    return jsonify(shop.to_dict())
+
+@app.route('/shop/view/<user_id>',methods=['GET'])
+def shop_view(user_id):
+    shop = Shop.query.filter_by(user_id = user_id).first()
+    if(shop):
+        return jsonify(shop.to_dict()), 200
+    else:
+        return jsonify("Not exist"), 400
+    
+@app.route('/shop/update/<id>',methods=['PUT','POST'])
+def shop_update(id):
+    shop = Shop.query.get_or_404(id)
+    data = request.get_json()
+    shop.name = data['name']
+    shop.bio = data.get('bio')
+    shop.phone_number = data.get('phone_number')
+    
+    image = data.get('image')
+    imageUrl = None
+    if image:
+        uploadShopProfileImage(SHOPPROFILE_CONTAINER_NAME,id,image)
+        imageUrl = getImageUrl(SHOPPROFILE_CONTAINER_NAME,id)
+    shop.image = imageUrl
+
+    db.session.commit()
+    return jsonify(shop.to_dict()),200
 
 def create_address(user_id,address_data):
     address = Address(
@@ -248,7 +431,6 @@ def create_address(user_id,address_data):
     db.session.add(address)
     db.session.commit()
     return address
-    
 
 @app.route('/address/add/<user_id>',methods=['POST'])
 def add_address(user_id):
@@ -278,53 +460,191 @@ def delete(id):
     address = Address.query.get_or_404(id)
     db.session.delete(address)
     db.session.commit()
-    return '',204
+    return '',200
 
 @app.route('/product/view',methods=['GET'])
 def product_view():
-    products = Product.query.all()
+    products = Product.query.filter_by(is_deleted=False).all()
     return jsonify([product.to_dict() for product in products])
+
+@app.route('/product/view/<shop_id>',methods=['GET'])
+def product_viewByShop(shop_id):
+    products = Product.query.filter_by(shop_id = shop_id, is_deleted=False).all()
+    dicts=[]
+    for product in products:
+        dict = product.to_dict()
+        # dict['images'] = getImagesByProductId(product_container_name,product.id)
+        dicts.append(dict)
+    return jsonify(dicts)
+    # return jsonify([product.to_dict() for product in products])
 
 @app.route('/product/search/<id>',methods=['GET'])
 def product_search(id):
     product = Product.query.get_or_404(id)
-    return jsonify(product.to_dict())
+    dict = product.to_dict()
+    dict['images'] = getImagesByProductId(product_container_name,product.id)
+    return jsonify(dict)
 
-@app.route('/product/add/<user_id>',methods=["POST"])
-def product_add(user_id):
+@app.route('/product/search',methods=['POST'])
+def product_search_filter():
     data = request.get_json()
+    shop = []
+    if data.get('user_id'):
+        shop = Shop.query.filter_by(user_id = data.get('user_id')).all()
+    # shop = Shop.query.filter_by(user_id = data['user_id']).first()
+    productsQuery = Product.query.filter_by(is_deleted=False)
+    if data.get('shop_id'):
+        productsQuery = productsQuery.filter_by(shop_id = data.get('shop_id'))
+    if shop:
+        productsQuery = productsQuery.filter(Product.shop_id!=shop[0].id)
+    products = productsQuery.all()
+    # products = Product.query.filter_by(is_deleted=False).all()
+    # if(shop):
+    #     products = Product.query.filter_by(is_deleted=False).filter(Product.shop_id!=shop.id).all()
+    search_text = data.get('search_text')
+    sort_by = data.get("sort_by")
+    sort_order = data.get("sort_order")
+    productList = []
+    for product in products:
+        relevantCount = 0
+        if search_text.lower() in product.name.lower():
+            relevantCount +=1
+        if search_text.lower() in product.description.lower():
+            relevantCount+=1
+        if product.categories and search_text.lower() in product.categories.lower():
+            relevantCount+=1
+        if product.brand and search_text.lower() in product.brand.lower():
+            relevantCount+=1
+        if product.variations and search_text.lower() in product.variations.lower():
+            relevantCount+=1
+        if relevantCount != 0:
+            productList.append({
+                'product':product,
+                'price':product.price,
+                'relevantCount':relevantCount,
+            })
+    if sort_by == "rel":
+        sorted_list = sorted(productList, key=lambda x: x["relevantCount"],reverse=True)
+    elif sort_by == "price":
+        sorted_list = sorted(productList, key=lambda x: x["price"],reverse=True)
+    if sort_order == "asc":
+        sorted_list = sorted_list[::-1]
+
+    return jsonify([sorted['product'].to_dict() for sorted in sorted_list])
+        
+
+
+@app.route('/product/add/<shop_id>',methods=["POST"])
+def product_add(shop_id):
+    data = request.get_json()
+    categories = data['categories']
+
+    sizes = data.get('sizes')
+    colors = data.get('colors')
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+    
     product = Product(
         name=data['name'],
         description=data['description'],
         price=data['price'],
-        image=data['image'],
-        user_id=user_id
+        shop_id=shop_id,
+        brand=data.get('brand'),
+        categories= "|".join(categories),
+        variations = variations,
+        is_deleted=False,
     )
     db.session.add(product)
     db.session.commit()
+
+    images = []
+    for image in data.get('images'):
+        images.append(
+            {
+            'name': str(product.id) + '/' + str(datetime.now()).replace(" ","_") + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(product_container_name,images)
+
+    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    db.session.commit()
+
     return jsonify(product.to_dict())
 
 @app.route('/product/update/<id>',methods=['PUT','POST'])
 def product_update(id):
-    product = Product.query.get_or_404(id)
+    product = Product.query.get(id)
     data = request.get_json()
+    
+    categories = data['categories']
+    sizes = data.get('sizes')
+    colors = data.get('colors')
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+    
     product.name = data['name']
     product.description = data['description']
     product.price = data['price']
-    product.image=data['image']
+    product.brand = data.get('brand')
+    # product.image=data['image']
+    product.categories = "|".join(categories)
+    product.variations = variations
     db.session.commit()
+
+    deleteImagesByProductId(product_container_name,product.id)
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(product.id) + '/' + str(datetime.now()).replace(" ","_") + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(product_container_name,images)
+
+    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    db.session.commit()
+
     return jsonify(product.to_dict())
 
 @app.route('/product/delete/<id>',methods=['DELETE','POST'])
 def product_delete(id):
     product = Product.query.get_or_404(id)
-    db.session.delete(product)
+    product.is_deleted = True
+    # deleteImagesByProductId(product_container_name,product.id)
+    # db.session.delete(product)
     db.session.commit()
-    return '',204
+    return '',200
 
 @app.route('/order/view',methods=['GET'])
 def order_view():
     orders = Order.query.all()
+    return jsonify([order.to_dict() for order in orders])
+
+@app.route("/order/view/<shop_id>",methods=['GET'])
+def order_viewbyshopid(shop_id):
+    allOrders = Order.query.all()
+    orders = []
+    for order in allOrders:
+        if str((order.to_dict())['products'][0]['shop_id']) == shop_id:
+            orders.append(order)
+    return jsonify([order.to_dict() for order in orders])
+
+@app.route('/order/viewbyuserid/<user_id>',methods=['GET'])
+def order_viewbyuserid(user_id):
+    orders = Order.query.filter_by(user_id = user_id).all()
     return jsonify([order.to_dict() for order in orders])
 
 @app.route('/order/search/<id>',methods=['GET'])
@@ -351,10 +671,20 @@ def orderproduct_add(order_id):
     data=request.get_json()
     orderproduct_data = data['order_product']
     for orderproduct in orderproduct_data:
+        sizes = orderproduct['size']
+        colors = orderproduct['color']
+        variations = ""
+        if(sizes):
+            variations+=sizes
+        variations+=";"
+        if(colors):
+            variations+=colors
+
         orderproducts.append(OrderProduct(
             order_id=order_id,
             product_id=orderproduct['product']['id'],
-            quantity=orderproduct['quantity']
+            quantity=orderproduct['quantity'],
+            variations = variations,
         ))
     db.session.add_all(orderproducts)
     db.session.commit()
@@ -391,13 +721,25 @@ def cart_search(id):
 def cart_add(user_id):
     data = request.get_json()
     cart = Cart.query.filter_by(user_id=user_id,product_id=data['product_id']).first()
+    
+    sizes = data['size']
+    colors = data['color']
+    variations = ""
+    if(sizes):
+        variations+=sizes
+    variations+=";"
+    if(colors):
+        variations+=colors
+
     if(cart):
         cart.quantity = data['quantity']
+        cart.variations = variations
     else:
         cart = Cart(
             user_id = user_id,
             product_id = data['product_id'],
-            quantity = data['quantity']
+            quantity = data['quantity'],
+            variations = variations,
         )
         db.session.add(cart)
     db.session.commit()
@@ -407,7 +749,17 @@ def cart_add(user_id):
 def cart_update(id):
     data = request.get_json()
     cart = Cart.query.get_or_404(id)
+    sizes = data['size']
+    colors = data['color']
+    variations = ""
+    if(sizes):
+        variations+="|".join(sizes)
+    variations+=";"
+    if(colors):
+        variations+="|".join(colors)
+
     cart.quantity = data['quantity']
+    cart.variations = variations
     db.session.commit()
     return jsonify(cart.to_dict())
 
@@ -416,17 +768,30 @@ def cart_delete(id):
     cart = Cart.query.get_or_404(id)
     db.session.delete(cart)
     db.session.commit()
-    return "",204
+    return "",200
 
 @app.route('/rate/view/<product_id>',methods=['GET'])
 def rate_view(product_id):
     rateList = Rate.query.filter_by(product_id=product_id).all()
-    return jsonify([rate.to_dict() for rate in rateList])
+    rates = []
+    for rate in rateList:
+        dict = rate.to_dict()
+        dict['images'] = getImagesByProductId(rate_container_name,rate.id)
+        rates.append(dict)
+    return jsonify(rates)
 
 @app.route('/rate/search/<id>',methods=['GET'])
 def rate_search(id):
     rate = Rate.query.get_or_404(id)
+    dict = rate.to_dict()
+    dict['images'] = getImagesByProductId(rate_container_name,rate.id)
     return jsonify(rate.to_dict())
+
+@app.route('/rate/search',methods = ['POST'])
+def rate_searchPOST():
+    data = request.get_json()
+    rateList = Rate.query.filter_by(product_id = data.get('product_id'),order_id = data.get('order_id')).all()
+    return jsonify([rate.to_dict() for rate in rateList])
 
 @app.route('/rate/add/<user_id>',methods=['POST'])
 def rate_add(user_id):
@@ -434,11 +799,25 @@ def rate_add(user_id):
     rate = Rate(
         user_id=user_id,
         product_id=data['product_id'],
+        order_id = data['order_id'],
         rate = data['rate'],
         review=data.get('review'),
     )
     db.session.add(rate)
     db.session.commit()
+    
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(rate.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(rate_container_name,images)
+
     return jsonify(rate.to_dict())
 
 @app.route('/rate/update/<id>',methods=['PUT','POST'])
@@ -448,6 +827,20 @@ def rate_update(id):
     rate.rate=data['rate']
     rate.review = data['review']
     db.session.commit()
+
+    deleteImagesByProductId(rate_container_name,rate.id)
+    imageList = data.get('images')
+    images = []
+    for image in imageList:
+        images.append(
+            {
+            'name': str(rate.id) + '/' + str(datetime.now()) + '.png',
+            'image':image,
+            }
+        )
+        time.sleep(.000001)
+    uploadImages(rate_container_name,images)
+
     return jsonify(rate.to_dict())
 
 @app.route('/rate/delete/<id>',methods=['DELETE','POST'])
@@ -458,7 +851,10 @@ def rate_delete(id):
         db.session.delete(reply)
     db.session.delete(rate)
     db.session.commit()
-    return '', 204
+    
+    deleteImagesByProductId(rate_container_name,rate.id)
+
+    return '', 200
 
 @app.route('/reply/view/<rate_id>',methods=['GET'])
 def reply_view(rate_id):
@@ -519,56 +915,63 @@ def create_user():
     db.session.commit()
     return jsonify(user.to_dict()), 201
 
-@app.route("/",methods=['GET'])
-def home():
-    return jsonify({'msg':"Welcome"})
-
-@app.route('/todo',methods=['POST'])
-def add_todo():
-    data=request.get_json()
-    name = request.json['name']
-    is_executed = request.json['is_executed']
-
-    todo = TodoItem(name,is_executed)
-    db.session.add(todo)
-    db.session.commit()
-    return jsonify(todo.to_dict()),201
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''
-        INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
-    ''',(name,is_executed))
-
-    conn.commit()
-
-    new_todo_item = TodoItem(name,is_executed)
-    # db.session.add(new_todo_item)
-    # db.session.commit()
-
-    return todo_schema.jsonify(new_todo_item)
+@app.route('/azurecomputervision',methods=['POST'])
+def azurecomputervision():
+    data = request.get_json()
+    dict = azure_computer_vision.getImageDetails(data['image'])
+    return jsonify(dict)
 
 
-@app.route('/todo',methods=['GET'])
-def get_todo():
-    todos=TodoItem.query.all()
-    return jsonify([todo.to_dict() for todo in todos])
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema''')
-    return jsonify(c.fetchall())
+# @app.route("/",methods=['GET'])
+# def home():
+#     return jsonify({'msg':"Welcome"})
 
-@app.route('/todo/<id>',methods=['PUT','PATCH'])
-def execute_todo(id):
-    todo = TodoItem.query.get(id)
-    db.session.commit()
-    return jsonify(todo)
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
-    return jsonify(c.fetchall())
+# @app.route('/todo',methods=['POST'])
+# def add_todo():
+#     data=request.get_json()
+#     name = request.json['name']
+#     is_executed = request.json['is_executed']
+
+#     todo = TodoItem(name,is_executed)
+#     db.session.add(todo)
+#     db.session.commit()
+#     return jsonify(todo.to_dict()),201
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''
+#         INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
+#     ''',(name,is_executed))
+
+#     conn.commit()
+
+#     new_todo_item = TodoItem(name,is_executed)
+#     # db.session.add(new_todo_item)
+#     # db.session.commit()
+
+#     return todo_schema.jsonify(new_todo_item)
+
+
+# @app.route('/todo',methods=['GET'])
+# def get_todo():
+#     todos=TodoItem.query.all()
+#     return jsonify([todo.to_dict() for todo in todos])
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema''')
+#     return jsonify(c.fetchall())
+
+# @app.route('/todo/<id>',methods=['PUT','PATCH'])
+# def execute_todo(id):
+#     todo = TodoItem.query.get(id)
+#     db.session.commit()
+#     return jsonify(todo)
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
+#     return jsonify(c.fetchall())
 
 
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True,port=5000)
+    app.run(debug=True,port=5000,host="0.0.0.0")
