@@ -60,4 +60,4 @@ jobs:
         with:
           app-name: 'apufypprojectpy'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_49215C2AF6D540E38CD88D118A137C36 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_372FE35C799643A5B7BAFE00387631B7 }}
