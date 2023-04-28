@@ -24,73 +24,73 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
 
-connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
-container_name='photos'
+# connect_str='DefaultEndpointsProtocol=https;AccountName=fyptest;AccountKey=ayyZvGIYSC+XkNPlZxRAV1MK6XBaDiHOFurrDFhpJm2P/4w/qx3wlvTa3wffGSP84CxFPks/vfYc+AStYqLUxw==;EndpointSuffix=core.windows.net'
+# container_name='photos'
 
-blob_service_client = BlobServiceClient.from_connection_string(connect_str)
-try:
-    container_client = blob_service_client.get_container_client(container_name)
-    container_client.get_container_properties()
-except Exception as ex:
-    container_client = blob_service_client.create_container(container_name)
+# blob_service_client = BlobServiceClient.from_connection_string(connect_str)
+# try:
+#     container_client = blob_service_client.get_container_client(container_name)
+#     container_client.get_container_properties()
+# except Exception as ex:
+#     container_client = blob_service_client.create_container(container_name)
 
-@app.route('/viewphoto')
-def view_photo():
-    return '''
-    <h1>upload photo</h1>
-    <form method="post" action="/uploadphotos"
-        enctype="multipart/form-data">
-        <input type="file" name="photo" multiple/>
-        <input type="submit"/>
-    </form>'''
+# @app.route('/viewphoto')
+# def view_photo():
+#     return '''
+#     <h1>upload photo</h1>
+#     <form method="post" action="/uploadphotos"
+#         enctype="multipart/form-data">
+#         <input type="file" name="photo" multiple/>
+#         <input type="submit"/>
+#     </form>'''
 
-@app.route('/displayphoto')
-def display_photo():
-    photo = []
-    blob_list = container_client.list_blobs()
-    for blob in blob_list:
-        photo.append(blob.name)
-        blob_client=container_client.get_blob_client(blob.name)
-        url = blob_client.url
-        print(url)
-    return jsonify(photo)
+# @app.route('/displayphoto')
+# def display_photo():
+#     photo = []
+#     blob_list = container_client.list_blobs()
+#     for blob in blob_list:
+#         photo.append(blob.name)
+#         blob_client=container_client.get_blob_client(blob.name)
+#         url = blob_client.url
+#         print(url)
+#     return jsonify(photo)
 
-@app.route("/display/<name>")
-def display(name):
-    blob_client = container_client.get_blob_client(name)
-    stream = blob_client.download_blob().readall()
-    print(stream[0:500])
-    return Response(stream, mimetype="image/jpeg")
+# @app.route("/display/<name>")
+# def display(name):
+#     blob_client = container_client.get_blob_client(name)
+#     stream = blob_client.download_blob().readall()
+#     print(stream[0:500])
+#     return Response(stream, mimetype="image/jpeg")
 
 
-@app.route('/uploadphotos',methods=['POST'])
-def upload_photos():
-    filenames=""
-    for file in request.files.getlist("photo"):
-        filenames += file.filename + " "
-        try:
-            container_client.upload_blob(file.filename,file)
-            filenames += file.filename + "<br/>"
-        except Exception as ex:
-            print(ex)
-            print("Ignore duplicate files")
-    return "Upload" + filenames
+# @app.route('/uploadphotos',methods=['POST'])
+# def upload_photos():
+#     filenames=""
+#     for file in request.files.getlist("photo"):
+#         filenames += file.filename + " "
+#         try:
+#             container_client.upload_blob(file.filename,file)
+#             filenames += file.filename + "<br/>"
+#         except Exception as ex:
+#             print(ex)
+#             print("Ignore duplicate files")
+#     return "Upload" + filenames
 
-class TodoItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    is_executed = db.Column(db.Boolean)
+# class TodoItem(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     name = db.Column(db.String(100))
+#     is_executed = db.Column(db.Boolean)
 
-    def __init__(self, name, is_executed):
-        self.name = name
-        self.is_executed = is_executed
+#     def __init__(self, name, is_executed):
+#         self.name = name
+#         self.is_executed = is_executed
 
-    def to_dict(self):
-        return {
-            'id':self.id,
-            'name':self.name,
-            'is_executed': self.is_executed
-        }
+#     def to_dict(self):
+#         return {
+#             'id':self.id,
+#             'name':self.name,
+#             'is_executed': self.is_executed
+#         }
 
 
 class User(db.Model):
@@ -145,7 +145,7 @@ class Product(db.Model):
     image = db.Column(db.String(255), nullable=True)
     shop_id = db.Column(db.Integer,db.ForeignKey('shop.id'),nullable=False)
     shop = db.relationship('Shop')
-    categories = db.Column(db.String(255),nullable = True)
+    categories = db.Column(db.String(100),nullable = True)
     brand = db.Column(db.String(100),nullable=True)
     variations = db.Column(db.String(255),nullable = True)
     is_deleted = db.Column(db.Boolean,nullable = False, default = False)
@@ -922,53 +922,53 @@ def azurecomputervision():
     return jsonify(dict)
 
 
-@app.route("/",methods=['GET'])
-def home():
-    return jsonify({'msg':"Welcome"})
+# @app.route("/",methods=['GET'])
+# def home():
+#     return jsonify({'msg':"Welcome"})
 
-@app.route('/todo',methods=['POST'])
-def add_todo():
-    data=request.get_json()
-    name = request.json['name']
-    is_executed = request.json['is_executed']
+# @app.route('/todo',methods=['POST'])
+# def add_todo():
+#     data=request.get_json()
+#     name = request.json['name']
+#     is_executed = request.json['is_executed']
 
-    todo = TodoItem(name,is_executed)
-    db.session.add(todo)
-    db.session.commit()
-    return jsonify(todo.to_dict()),201
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''
-        INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
-    ''',(name,is_executed))
+#     todo = TodoItem(name,is_executed)
+#     db.session.add(todo)
+#     db.session.commit()
+#     return jsonify(todo.to_dict()),201
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''
+#         INSERT INTO TodoSchema(name,is_executed) VALUES (?,?)
+#     ''',(name,is_executed))
 
-    conn.commit()
+#     conn.commit()
 
-    new_todo_item = TodoItem(name,is_executed)
-    # db.session.add(new_todo_item)
-    # db.session.commit()
+#     new_todo_item = TodoItem(name,is_executed)
+#     # db.session.add(new_todo_item)
+#     # db.session.commit()
 
-    return todo_schema.jsonify(new_todo_item)
+#     return todo_schema.jsonify(new_todo_item)
 
 
-@app.route('/todo',methods=['GET'])
-def get_todo():
-    todos=TodoItem.query.all()
-    return jsonify([todo.to_dict() for todo in todos])
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema''')
-    return jsonify(c.fetchall())
+# @app.route('/todo',methods=['GET'])
+# def get_todo():
+#     todos=TodoItem.query.all()
+#     return jsonify([todo.to_dict() for todo in todos])
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema''')
+#     return jsonify(c.fetchall())
 
-@app.route('/todo/<id>',methods=['PUT','PATCH'])
-def execute_todo(id):
-    todo = TodoItem.query.get(id)
-    db.session.commit()
-    return jsonify(todo)
-    conn = sqlite3.connect('test_database.db')
-    c=conn.cursor()
-    c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
-    return jsonify(c.fetchall())
+# @app.route('/todo/<id>',methods=['PUT','PATCH'])
+# def execute_todo(id):
+#     todo = TodoItem.query.get(id)
+#     db.session.commit()
+#     return jsonify(todo)
+#     conn = sqlite3.connect('test_database.db')
+#     c=conn.cursor()
+#     c.execute('''SELECT * FROM TodoSchema WHERE id=?''',(id))
+#     return jsonify(c.fetchall())
 
 
 if __name__ == "__main__":
