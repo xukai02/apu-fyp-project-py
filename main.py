@@ -149,7 +149,6 @@ class Product(db.Model):
     brand = db.Column(db.String(100),nullable=True)
     variations = db.Column(db.String(255),nullable = True)
     is_deleted = db.Column(db.Boolean,nullable = False, default = False)
-    # user_id = db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
 
     def to_dict(self):
         sizes=None
@@ -171,7 +170,6 @@ class Product(db.Model):
             'sizes': sizes,
             'colors': colors,
             'is_deleted': self.is_deleted,
-            # 'user_id': self.user_id
         }
     
 class Cart(db.Model):
@@ -473,7 +471,7 @@ def product_viewByShop(shop_id):
     dicts=[]
     for product in products:
         dict = product.to_dict()
-        # dict['images'] = getImagesByProductId(product_container_name,product.id)
+        # dict['images'] = getImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)
         dicts.append(dict)
     return jsonify(dicts)
     # return jsonify([product.to_dict() for product in products])
@@ -482,7 +480,7 @@ def product_viewByShop(shop_id):
 def product_search(id):
     product = Product.query.get_or_404(id)
     dict = product.to_dict()
-    dict['images'] = getImagesByProductId(product_container_name,product.id)
+    dict['images'] = getImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)
     return jsonify(dict)
 
 @app.route('/product/search',methods=['POST'])
@@ -570,9 +568,9 @@ def product_add(shop_id):
             }
         )
         time.sleep(.000001)
-    uploadImages(product_container_name,images)
+    uploadImages(PRODUCT_CONTAINER_NAME,images)
 
-    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    product.image = getImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)[0]['image']
     db.session.commit()
 
     return jsonify(product.to_dict())
@@ -601,7 +599,7 @@ def product_update(id):
     product.variations = variations
     db.session.commit()
 
-    deleteImagesByProductId(product_container_name,product.id)
+    deleteImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)
     imageList = data.get('images')
     images = []
     for image in imageList:
@@ -612,9 +610,9 @@ def product_update(id):
             }
         )
         time.sleep(.000001)
-    uploadImages(product_container_name,images)
+    uploadImages(PRODUCT_CONTAINER_NAME,images)
 
-    product.image = getImagesByProductId(product_container_name,product.id)[0]['image']
+    product.image = getImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)[0]['image']
     db.session.commit()
 
     return jsonify(product.to_dict())
@@ -623,7 +621,7 @@ def product_update(id):
 def product_delete(id):
     product = Product.query.get_or_404(id)
     product.is_deleted = True
-    # deleteImagesByProductId(product_container_name,product.id)
+    # deleteImagesByProductId(PRODUCT_CONTAINER_NAME,product.id)
     # db.session.delete(product)
     db.session.commit()
     return '',200
@@ -776,7 +774,7 @@ def rate_view(product_id):
     rates = []
     for rate in rateList:
         dict = rate.to_dict()
-        dict['images'] = getImagesByProductId(rate_container_name,rate.id)
+        dict['images'] = getImagesByProductId(RATE_CONTAINER_NAME,rate.id)
         rates.append(dict)
     return jsonify(rates)
 
@@ -784,7 +782,7 @@ def rate_view(product_id):
 def rate_search(id):
     rate = Rate.query.get_or_404(id)
     dict = rate.to_dict()
-    dict['images'] = getImagesByProductId(rate_container_name,rate.id)
+    dict['images'] = getImagesByProductId(RATE_CONTAINER_NAME,rate.id)
     return jsonify(rate.to_dict())
 
 @app.route('/rate/search',methods = ['POST'])
@@ -816,7 +814,7 @@ def rate_add(user_id):
             }
         )
         time.sleep(.000001)
-    uploadImages(rate_container_name,images)
+    uploadImages(RATE_CONTAINER_NAME,images)
 
     return jsonify(rate.to_dict())
 
@@ -828,7 +826,7 @@ def rate_update(id):
     rate.review = data['review']
     db.session.commit()
 
-    deleteImagesByProductId(rate_container_name,rate.id)
+    deleteImagesByProductId(RATE_CONTAINER_NAME,rate.id)
     imageList = data.get('images')
     images = []
     for image in imageList:
@@ -839,7 +837,7 @@ def rate_update(id):
             }
         )
         time.sleep(.000001)
-    uploadImages(rate_container_name,images)
+    uploadImages(RATE_CONTAINER_NAME,images)
 
     return jsonify(rate.to_dict())
 
@@ -852,7 +850,7 @@ def rate_delete(id):
     db.session.delete(rate)
     db.session.commit()
     
-    deleteImagesByProductId(rate_container_name,rate.id)
+    deleteImagesByProductId(RATE_CONTAINER_NAME,rate.id)
 
     return '', 200
 
